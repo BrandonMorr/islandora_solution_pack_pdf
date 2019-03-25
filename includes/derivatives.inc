@@ -328,9 +328,30 @@ function islandora_pdf_create_jpg_derivative($file_uri, $dsid, $width, $height) 
   $base = pathinfo($source, PATHINFO_FILENAME);
   $temp = file_create_filename("$base.$dsid.jpg", 'temporary://');
   $dest = drupal_realpath($temp);
+  $colorspace = islandora_pdf_get_colorspace($source);
+  if ($colorspace === FALSE) {
+    return array(
+      'success' => FALSE,
+      'messages' => array(
+        array(
+          'message' => t('Failed to create @dsid derivative. Could not identify source OBJ.'),
+          'message_sub' => array(
+            '@dsid' => $dsid,
+          ),
+          'type' => 'watchdog',
+          'severity' => WATCHDOG_WARNING,
+        ),
+      ),
+    );
+  }
   $args['quality'] = '-quality ' . escapeshellarg(variable_get('imagemagick_quality', 75));
   $args['previewsize'] = '-resize ' . escapeshellarg("{$width}x{$height}");
-  $args['colors'] = '-colorspace RGB';
+  if ($colorspace === 'sRGB') {
+    $args['colors'] = '-colorspace sRGB';
+  }
+  else {
+    $args['colors'] = '-colorspace RGB';
+  }
   $args['flatten'] = '-flatten';
   $context = array(
     'source' => $source,
@@ -426,4 +447,38 @@ function islandora_pdf_missing_obj_datastream($pid) {
       ),
     ),
   );
+}
+
+/**
+ * Uses Imagemagick's identify to get the colorspace of a file.
+ *
+ * @param string $file
+ *   A file-system path to the file in question.
+ *
+ * @return string|bool
+ *   The colorspace of the image if exists, or FALSE if
+ *   identify command exists/fails with 1.
+ */
+function islandora_pdf_get_colorspace($file) {
+  $identify = islandora_pdf_get_identify();
+  $escaped_file = escapeshellarg($file);
+  $colorspace = exec(escapeshellcmd("$identify -quiet -format %[colorspace] ") . $escaped_file, $output, $procret);
+  return !$procret ? $colorspace : FALSE;
+}
+
+/**
+ * Attempt to get the "identify" executable...
+ *
+ * Assume convert is sanely named, and that identify can be obtained from the
+ * same place.
+ *
+ * @return string
+ *   The command to run for "identify".
+ */
+function islandora_pdf_get_identify() {
+  // Get path for convert.
+  $convert = variable_get('imagemagick_convert', 'convert');
+  // Replace "convert" with "identify".
+  $identify = str_replace('convert', 'identify', $convert);
+  return $identify;
 }
